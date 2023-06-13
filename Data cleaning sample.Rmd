@@ -1,0 +1,717 @@
+---
+title: "life simple 7"
+author: "Golaleh Almasi"
+date: "10/6/2022"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(haven)
+library(dplyr)
+library(openxlsx)
+Sys.setlocale(locale = "persian")
+library(srvyr)
+library(survey)
+library(knitr)
+library(flextable)
+library(labelled)
+data.f <- read_dta(".../your data .dta")
+
+data.f=data.f%>% mutate(age_group=if_else(age<=24 ,"18-24",if_else(age<=44,"25-44",if_else(age<=60,"45-60","60+"))))
+
+
+data.f <- data.f  %>%  mutate( smoking=if_else(s1b==1,0,if_else(s1b==0 & s1a==1,1,2)))
+data.f <- data.f  %>%  mutate( Bmi=if_else(bmi>=30,0,if_else(bmi>=25 & bmi <30,1,2)))
+data.f <- data.f  %>%  mutate( chol=if_else(CH02l>=240,0,if_else((CH02l>=200& CH02l<240)|(CH02l<200 & h14a==1),1,2)))
+data.f <- data.f  %>%  mutate( BP=if_else(MeanSys>=140 | MeanDias>=90,0,if_else(((MeanSys>=120 & MeanSys<140)| (MeanDias>=80 & MeanDias<90))|(MeanSys<120 & MeanDias<80 & h3c==1),1,2)))
+data.f <- data.f  %>%  mutate( fpg=if_else(GLUC3>=126,0,if_else((GLUC3>=100& GLUC3<126)|(GLUC3<100 & h88ma==1),1,2)))
+
+data.f=data.f %>% mutate(work_moderate22=work_moderate22/4,
+                         work_vigorous22=work_vigorous22/8,
+                         transport_met22=transport_met22/4,
+                         recreation_vigorous22=recreation_vigorous22/8,
+                         recreation_moderate22=recreation_moderate22/4,
+                         moderate=work_moderate22+transport_met22+recreation_moderate22,
+                         vigorous=work_vigorous22+recreation_vigorous22,
+                         moderate_vigorous=moderate+vigorous,
+                         activity=if_else(moderate==0 & vigorous==0,0,if_else(moderate<150 | vigorous<75| moderate_vigorous<150,1,2)))
+
+ data.f <- data.f  %>%  mutate( frve=if_else(d1*d2+d3*d4>=31.5,1,0),
+                                fish=if_else(d11a>=3,1,0),
+                                fibr=if_else(d20n>=5,1,0),
+                                sodium=if_else(sodium_24<=1500,1,0),
+                                sugar=if_else(d19<=3,1,0),
+                                diet=if_else(frve+fish+fibr+sodium+sugar<2,0,if_else(frve+fish+fibr+sodium+sugar<4,1,2)))
+
+var_label(data.f$smoking)="smoking"
+var_label(data.f$diet)="Healthy diet score"
+var_label(data.f$activity)="Physical activity level"
+var_label(data.f$Bmi)="Body mass index"
+var_label(data.f$BP)="Blood pressure"
+var_label(data.f$chol)="Total cholesterol"
+var_label(data.f$fpg)="Fasting plasma glucose"
+
+data.f=data.f %>% mutate(smoking_1=if_else(smoking<2,0,1))
+data.f=data.f %>% mutate(diet_1=if_else(diet<2,0,1))
+data.f=data.f %>% mutate(activity_1=if_else(activity<2,0,1))
+data.f=data.f %>% mutate(Bmi_1=if_else(Bmi<2,0,1))
+data.f=data.f %>% mutate(BP_1=if_else(BP<2,0,1))
+data.f=data.f %>% mutate(chol_1=if_else(chol<2,0,1))
+data.f=data.f %>% mutate(fpg_1=if_else(fpg<2,0,1))
+
+data.f=data.f %>% group_by(familymemberid)%>% mutate(LS7=sum(smoking_1,diet_1,activity_1,Bmi_1,BP_1,chol_1,fpg_1,na.rm=T)) %>% ungroup()
+
+data.f=data.f %>% group_by(familymemberid)%>% mutate(LS7_1=sum(smoking,diet,activity,Bmi,BP,chol,fpg,na.rm=T)) %>% ungroup()
+
+data.f=data.f %>% mutate(h17ac=if_else(h17ac==-555,0,as.numeric(h17ac)))
+data.f=data.f %>% mutate(h17bc=if_else(h17bc==-555,0,as.numeric(h17bc)))
+data.f=data.f %>% mutate(h7c=if_else(h7c==-555,0,as.numeric(h7c)))
+data.f=data.f %>% mutate(h2y=if_else(h2y==-555,0,as.numeric(h2y)))
+data.f=data.f %>% mutate(h13b=if_else(h13b==-555,0,as.numeric(h13b)))
+data.f=data.f %>% mutate(r1=if_else(r1==-555,0,as.numeric(r1)))
+
+var_label(data.f$area)="Area of residency"
+ 
+################################################################
+
+pop=read_dta(".../population.dta")
+pop$age=as.numeric(pop$age)
+
+pop=pop %>% filter(Province!=25)
+pop=pop[pop$year==1395 & pop$age>=18 ,]
+ 
+
+pop$age_cat=NA
+pop$age_cat[pop$age<25]=18
+pop$age_cat[pop$age>=25 & pop$age<35]=25
+pop$age_cat[pop$age>=35 & pop$age<45]=35
+pop$age_cat[pop$age>=45 & pop$age<55]=45
+pop$age_cat[pop$age>=55 & pop$age<65]=55
+pop$age_cat[pop$age>=65 & pop$age<70]=65
+pop$age_cat[pop$age>=70 ]=70
+
+pop=aggregate(pop$pred2pop~pop$sex_name+pop$area_name+pop$age_cat,FUN = sum)
+colnames(pop)=c("c1","area","age_cat","pop")
+pop= pop %>% rename(pop18=pop) %>%  mutate(pop25=if_else(age_cat>=25,pop18,0))
+
+p25=pop %>%group_by(age_cat) %>% summarise(p=sum(pop18)) %>% filter(age_cat>=25)
+p25_s=pop %>%group_by(age_cat,c1) %>% summarise(p=sum(pop18)) %>% filter(age_cat>=25)
+p25_a=pop %>%group_by(age_cat,area) %>% summarise(p=sum(pop18)) %>% filter(age_cat>=25)
+p25_sa=pop %>%group_by(age_cat,c1,area) %>% summarise(p=sum(pop18)) %>% filter(age_cat>=25)
+
+p18=pop %>%group_by(age_cat) %>% summarise(p=sum(pop18)) 
+p18_s=pop %>%group_by(age_cat,c1) %>% summarise(p=sum(pop18)) 
+p18_a=pop %>%group_by(age_cat,area) %>% summarise(p=sum(pop18)) 
+p18_sa=pop %>%group_by(age_cat,c1,area) %>% summarise(p=sum(pop18)) 
+
+```
+
+# Table 1: demographic all
+
+```{r message=FALSE, warning=FALSE, ,echo=F, paged.print=TRUE}
+data.f.s <- data.f %>% filter(age>=25) %>%
+  as_survey_design(strata= i07, weights = W_Laboratory) 
+
+var_A=c("area","i20","i21","marriagestatus","WI_National","x3d1","x4")
+
+
+a=data.f.s %>% group_by(age_group) %>% 
+  summarise( percent=round(survey_prop(vartype = "ci")*100,2),n=n()) %>% mutate(out=paste0(" (",percent_low,",",percent_upp,")"))%>% select(age_group,n,percent,out) 
+
+a_f=data.f.s %>% filter(  c1==0 )%>% group_by(age_group) %>% 
+  summarise( percent=round(survey_prop(vartype = "ci")*100,2),n=n()) %>% mutate(out=paste0(" (",percent_low,",",percent_upp,")"))%>% select(age_group,n,percent,out) %>% rename("n_f"="n","percent_f"="percent","out_f"="out") %>%  left_join(a)
+
+a_m=data.f.s %>% filter(   c1==1 )%>% group_by(age_group) %>% 
+  summarise( percent=round(survey_prop(vartype = "ci")*100,2),n=n()) %>% mutate(out=paste0(" (",percent_low,",",percent_upp,")"))%>% select(age_group,n,percent,out) %>% rename("n_m"="n","percent_m"="percent","out_m"="out") %>%  left_join(a_f)%>% mutate(variable="Age") %>% relocate(variable ) %>% rename(Category=age_group)
+for (i in var_A) {
+  
+assign( "d",data.f.s %>% mutate(!!i:=to_factor(data.f.s[["variables"]][[i]])) %>%  filter(!is.na(!!!sym(i)))%>% group_by(!!!sym(i)) %>% 
+  summarise( percent=round(survey_prop(vartype = "ci")*100,2),n=n())  %>% mutate(out=paste0(" (",percent_low,",",percent_upp,")"))%>% select(!!!sym(i),n,percent,out)) 
+
+assign( "b",data.f.s %>% mutate(!!i:=to_factor(data.f.s[["variables"]][[i]])) %>% filter(  c1==0 & !is.na(!!!sym(i)))%>% group_by(!!!sym(i)) %>% 
+  summarise( percent=round(survey_prop(vartype = "ci")*100,2),n=n())  %>% mutate(out=paste0(" (",percent_low,",",percent_upp,")"))%>% select(!!!sym(i),n,percent,out)%>% rename("n_f"="n","percent_f"="percent","out_f"="out")%>% left_join(d))
+
+
+assign(  paste0("male_",i) ,data.f.s %>% mutate(!!i:=to_factor(data.f.s[["variables"]][[i]]))%>% filter(  c1==1 & !is.na(!!!sym(i)))%>% group_by(!!!sym(i)) %>% 
+  summarise( percent=round(survey_prop(vartype = "ci")*100,2),n=n()) %>%  mutate(out=paste0(" (",percent_low,",",percent_upp,")"))%>% select(!!!sym(i),n,percent,out) %>% rename("n_m"="n","percent_m"="percent","out_m"="out") %>% left_join(b) %>% mutate(variable=if_else(is.null(var_label(data.f[[i]])),i,var_label(data.f[[i]])))%>% relocate(variable )%>% rename(Category=!!sym(i)) %>% filter(Category!=-555) %>% mutate(Category=as.character(Category)))
+
+
+a_m=a_m %>% bind_rows(get(paste0("male_",i)))
+}
+write.xlsx(a_m,".../table 1.xlsx")
+flextable(a_m)
+```
+
+# Table 2: Prevalence of LS7 factors in included adult population by sex and for both sexes.
+
+```{r message=FALSE, warning=FALSE, ,echo=F, paged.print=TRUE}
+data.f.a <- data.f %>% filter(age>=25) %>%
+  as_survey_design(strata= i07, weights = W_Laboratory) 
+data.f.q <- data.f%>% filter(age>=25)  %>%
+  as_survey_design(strata= i07, weights = W_Laboratory) 
+data.f.l <- data.f %>% filter(age>=25)  %>%
+  as_survey_design(strata= i07, weights = W_Laboratory) 
+
+var_q=c("smoking","activity")
+var_a=c("BP","Bmi")
+var_l=c("chol","fpg","diet")
+
+i=var_q[1]
+a=data.f.q%>% mutate(c1=to_factor(data.f.q[["variables"]][["c1"]])) %>%filter(!is.na(!!!sym(i))) %>%  group_by(c1,!!!sym(i))%>% summarise( percent=round(survey_prop(vartype = "ci")*100,2))%>% mutate(out=paste0(percent," (",percent_low," , ",percent_upp,")")) %>% select(c1,!!!sym(i),out) %>% spread(c1,out) %>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable)%>%mutate(P_value=round(svychisq(as.formula(paste0("~",i,"+c1")),design = data.f.q, statistic="adjWald",na.rm=TRUE)$p.value[1,1],3))
+
+
+b=data.f.q %>%filter(!is.na(!!!sym(i))) %>%  group_by(!!!sym(i))%>% summarise( percent=round(survey_prop(vartype = "ci")*100,2))%>% mutate(out=paste0(percent," (",percent_low," , ",percent_upp,")")) %>% select(!!!sym(i),out) %>% rename("Total"="out")%>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable) %>% left_join(a)
+
+
+for (i in var_q[-1]) {
+  
+a1=data.f.q%>% mutate(c1=to_factor(data.f.q[["variables"]][["c1"]])) %>%filter(!is.na(!!!sym(i))) %>%  group_by(c1,!!!sym(i))%>% summarise( percent=round(survey_prop(vartype = "ci")*100,2))%>% mutate(out=paste0(percent," (",percent_low," , ",percent_upp,")")) %>% select(c1,!!!sym(i),out) %>% spread(c1,out) %>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable)%>%mutate(P_value=round(svychisq(as.formula(paste0("~",i,"+c1")),design = data.f.q, statistic="adjWald",na.rm=TRUE)$p.value[1,1],3))
+
+
+b1=data.f.q %>%filter(!is.na(!!!sym(i))) %>%  group_by(!!!sym(i))%>% summarise( percent=round(survey_prop(vartype = "ci")*100,2))%>% mutate(out=paste0(percent," (",percent_low," , ",percent_upp,")")) %>% select(!!!sym(i),out) %>% rename("Total"="out")%>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable) %>% left_join(a1)
+
+b=b %>% bind_rows(b1)
+  
+}
+
+for (i in var_a) {
+  
+a1=data.f.a%>% mutate(c1=to_factor(data.f.a[["variables"]][["c1"]])) %>%filter(!is.na(!!!sym(i))) %>%  group_by(c1,!!!sym(i))%>% summarise( percent=round(survey_prop(vartype = "ci")*100,2))%>% mutate(out=paste0(percent," (",percent_low," , ",percent_upp,")")) %>% select(c1,!!!sym(i),out) %>% spread(c1,out) %>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable)%>%mutate(P_value=round(svychisq(as.formula(paste0("~",i,"+c1")),design = data.f.a, statistic="adjWald",na.rm=TRUE)$p.value[1,1],3))
+
+
+b1=data.f.a %>%filter(!is.na(!!!sym(i))) %>%  group_by(!!!sym(i))%>% summarise( percent=round(survey_prop(vartype = "ci")*100,2))%>% mutate(out=paste0(percent," (",percent_low," , ",percent_upp,")")) %>% select(!!!sym(i),out) %>% rename("Total"="out")%>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable) %>% left_join(a1)
+
+b=b %>% bind_rows(b1)
+  
+}
+
+for (i in var_l) {
+  
+a1=data.f.l%>% mutate(c1=to_factor(data.f.l[["variables"]][["c1"]])) %>%filter(!is.na(!!!sym(i))) %>%  group_by(c1,!!!sym(i))%>% summarise( percent=round(survey_prop(vartype = "ci")*100,2))%>% mutate(out=paste0(percent," (",percent_low," , ",percent_upp,")")) %>% select(c1,!!!sym(i),out) %>% spread(c1,out) %>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable)%>%mutate(P_value=round(svychisq(as.formula(paste0("~",i,"+c1")),design = data.f.l, statistic="adjWald",na.rm=TRUE)$p.value[1,1],3))
+
+
+b1=data.f.l %>%filter(!is.na(!!!sym(i))) %>%  group_by(!!!sym(i))%>% summarise( percent=round(survey_prop(vartype = "ci")*100,2))%>% mutate(out=paste0(percent," (",percent_low," , ",percent_upp,")")) %>% select(!!!sym(i),out) %>% rename("Total"="out")%>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable) %>% left_join(a1)
+
+b=b %>% bind_rows(b1)
+  
+}
+
+
+
+write.xlsx(b,".../table 2.xlsx")
+flextable(b)
+```
+
+# Table 3: Prevalence of LS7 factors by three major age categories (25-39, 40-59, >60) in the included population.
+
+```{r message=FALSE, warning=FALSE, ,echo=F, paged.print=TRUE}
+data.f.a <- data.f %>% filter(age>=25) %>%
+  as_survey_design(strata= i07, weights = W_Laboratory) 
+data.f.q <- data.f  %>% filter(age>=25)%>%
+  as_survey_design(strata= i07, weights = W_Laboratory) 
+data.f.l <- data.f  %>% filter(age>=25) %>%
+  as_survey_design(strata= i07, weights = W_Laboratory) 
+
+var_q=c("smoking","activity")
+var_a=c("BP","Bmi")
+var_l=c("chol","fpg","diet")
+
+i=var_q[1]
+a=data.f.q%>% mutate(age_group=to_factor(data.f.q[["variables"]][["age_group"]])) %>%filter(!is.na(!!!sym(i))) %>%  group_by(age_group,!!!sym(i))%>% summarise( percent=round(survey_prop(vartype = "ci")*100,2))%>% mutate(out=paste0(percent," (",percent_low," , ",percent_upp,")")) %>% select(age_group,!!!sym(i),out) %>% spread(age_group,out) %>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable)%>%mutate(P_value=round(svychisq(as.formula(paste0("~",i,"+age_group")),design = data.f.q, statistic="adjWald",na.rm=TRUE)$p.value[1,1],3))
+
+
+b=data.f.q %>%filter(!is.na(!!!sym(i))) %>%  group_by(!!!sym(i))%>% summarise( percent=round(survey_prop(vartype = "ci")*100,2))%>% mutate(out=paste0(percent," (",percent_low," , ",percent_upp,")")) %>% select(!!!sym(i),out) %>% rename("Total"="out")%>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable) %>% left_join(a)
+
+
+for (i in var_q[-1]) {
+  
+a1=data.f.q%>% mutate(age_group=to_factor(data.f.q[["variables"]][["age_group"]])) %>%filter(!is.na(!!!sym(i))) %>%  group_by(age_group,!!!sym(i))%>% summarise( percent=round(survey_prop(vartype = "ci")*100,2))%>% mutate(out=paste0(percent," (",percent_low," , ",percent_upp,")")) %>% select(age_group,!!!sym(i),out) %>% spread(age_group,out) %>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable)%>%mutate(P_value=round(svychisq(as.formula(paste0("~",i,"+age_group")),design = data.f.q, statistic="adjWald",na.rm=TRUE)$p.value[1,1],3))
+
+
+b1=data.f.q %>%filter(!is.na(!!!sym(i))) %>%  group_by(!!!sym(i))%>% summarise( percent=round(survey_prop(vartype = "ci")*100,2))%>% mutate(out=paste0(percent," (",percent_low," , ",percent_upp,")")) %>% select(!!!sym(i),out) %>% rename("Total"="out")%>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable) %>% left_join(a1)
+
+b=b %>% bind_rows(b1)
+  
+}
+
+for (i in var_a) {
+  
+a1=data.f.a%>% mutate(age_group=to_factor(data.f.a[["variables"]][["age_group"]])) %>%filter(!is.na(!!!sym(i))) %>%  group_by(age_group,!!!sym(i))%>% summarise( percent=round(survey_prop(vartype = "ci")*100,2))%>% mutate(out=paste0(percent," (",percent_low," , ",percent_upp,")")) %>% select(age_group,!!!sym(i),out) %>% spread(age_group,out) %>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable)%>%mutate(P_value=round(svychisq(as.formula(paste0("~",i,"+age_group")),design = data.f.a, statistic="adjWald",na.rm=TRUE)$p.value[1,1],3))
+
+
+b1=data.f.a %>%filter(!is.na(!!!sym(i))) %>%  group_by(!!!sym(i))%>% summarise( percent=round(survey_prop(vartype = "ci")*100,2))%>% mutate(out=paste0(percent," (",percent_low," , ",percent_upp,")")) %>% select(!!!sym(i),out) %>% rename("Total"="out")%>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable) %>% left_join(a1)
+
+b=b %>% bind_rows(b1)
+  
+}
+
+for (i in var_l) {
+  
+a1=data.f.l%>% mutate(age_group=to_factor(data.f.l[["variables"]][["age_group"]])) %>%filter(!is.na(!!!sym(i))) %>%  group_by(age_group,!!!sym(i))%>% summarise( percent=round(survey_prop(vartype = "ci")*100,2))%>% mutate(out=paste0(percent," (",percent_low," , ",percent_upp,")")) %>% select(age_group,!!!sym(i),out) %>% spread(age_group,out) %>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable)%>%mutate(P_value=round(svychisq(as.formula(paste0("~",i,"+age_group")),design = data.f.l, statistic="adjWald",na.rm=TRUE)$p.value[1,1],3))
+
+
+b1=data.f.l %>%filter(!is.na(!!!sym(i))) %>%  group_by(!!!sym(i))%>% summarise( percent=round(survey_prop(vartype = "ci")*100,2))%>% mutate(out=paste0(percent," (",percent_low," , ",percent_upp,")")) %>% select(!!!sym(i),out) %>% rename("Total"="out")%>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable) %>% left_join(a1)
+
+b=b %>% bind_rows(b1)
+  
+}
+
+
+
+write.xlsx(b,".../table 3.xlsx")
+flextable(b)
+```
+
+# Table 4: Statistics of number of ideal LS7 values in included adult population by sex and for both sexes.
+
+```{r message=FALSE, warning=FALSE, ,echo=F, paged.print=TRUE}
+ 
+data.f.q <- data.f %>% filter(age>=25)  %>%
+  as_survey_design(strata= i07, weights = W_Laboratory) 
+i="LS7"
+a=data.f.q%>% mutate(c1=to_factor(data.f.q[["variables"]][["c1"]])) %>%filter(!is.na(!!!sym(i))) %>%  group_by(c1,!!!sym(i))%>% summarise( percent=round(survey_prop(vartype = "ci")*100,2))%>% mutate(out=paste0(percent," (",percent_low," , ",percent_upp,")")) %>% select(c1,!!!sym(i),out) %>% spread(c1,out) %>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable)%>%mutate(P_value=round(svychisq(as.formula(paste0("~",i,"+c1")),design = data.f.q, statistic="adjWald",na.rm=TRUE)$p.value[1,1],3))
+
+
+b=data.f.q %>%filter(!is.na(!!!sym(i))) %>%  group_by(!!!sym(i))%>% summarise( percent=round(survey_prop(vartype = "ci")*100,2))%>% mutate(out=paste0(percent," (",percent_low," , ",percent_upp,")")) %>% select(!!!sym(i),out) %>% rename("Total"="out")%>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable) %>% left_join(a)
+
+write.xlsx(b,".../table 4.xlsx")
+
+
+flextable(b)
+```
+
+# Table 5:Statistics of number of ideal LS7 values by three major age categories (25-39, 40-59, >60) in included adult population.
+```{r message=FALSE, warning=FALSE, ,echo=F, paged.print=TRUE}
+ 
+data.f.q <- data.f  %>% filter(age>=25)%>%
+  as_survey_design(strata= i07, weights = W_Laboratory) 
+i="LS7"
+a=data.f.q%>% mutate(age_group=to_factor(data.f.q[["variables"]][["age_group"]])) %>%filter(!is.na(!!!sym(i))) %>%  group_by(age_group,!!!sym(i))%>% summarise( percent=round(survey_prop(vartype = "ci")*100,2))%>% mutate(out=paste0(percent," (",percent_low," , ",percent_upp,")")) %>% select(age_group,!!!sym(i),out) %>% spread(age_group,out) %>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable)%>%mutate(P_value=round(svychisq(as.formula(paste0("~",i,"+age_group")),design = data.f.q, statistic="adjWald",na.rm=TRUE)$p.value[1,1],3))
+
+
+b=data.f.q %>%filter(!is.na(!!!sym(i))) %>%  group_by(!!!sym(i))%>% summarise( percent=round(survey_prop(vartype = "ci")*100,2))%>% mutate(out=paste0(percent," (",percent_low," , ",percent_upp,")")) %>% select(!!!sym(i),out) %>% rename("Total"="out")%>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable) %>% left_join(a)
+
+
+write.xlsx(b,".../table 5.xlsx")
+
+flextable(b)
+```
+# Table 6:. Mean score of LS7 in different categorizations of the included adult population in this survey.
+```{r message=FALSE, warning=FALSE, ,echo=F, paged.print=TRUE}
+ 
+data.f.q <- data.f  %>% filter(age>=25)%>%
+  as_survey_design(strata= i07, weights = W_Laboratory) 
+
+i="age_cat"
+
+a=data.f.q %>% mutate(c1=to_factor(data.f.q[["variables"]][["c1"]]),!!sym(i):=to_factor(data.f.q[["variables"]][[i]])) %>%  group_by(c1,!!!sym(i)) %>% summarise(mean=round(survey_mean(LS7,vartype = "ci",na.rm = T),2)) %>%mutate(out= paste0(mean,"( ", mean_low," , ",mean_upp,")")) %>%select(c1,!!!sym(i),out) %>% spread(c1,out)%>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable)
+
+
+
+j=(data.f.q %>%filter(!is.na(!!!sym(i))) %>% summarise(a=unique(!!!sym(i))))$a[1]
+
+P_value=round(svyttest(LS7~c1,design = data.f.q %>% filter(!!sym(i)==j) ,na.rm=TRUE)$p.value[1],3)
+
+for(j in (data.f.q %>%filter(!is.na(!!!sym(i))) %>% summarise(a=unique(!!!sym(i))))$a[-1]){
+  
+aa=round(svyttest(LS7~c1,design = data.f.q %>% filter(!!sym(i)==j) ,na.rm=TRUE)$p.value[1],3)
+
+P_value=c(P_value,aa)
+
+}
+P_value=data.frame(P_value) %>% mutate(Category=(data.f.q %>%filter(!is.na(!!!sym(i))) %>% summarise(a=unique(!!!sym(i))))$a,Variable=i,Category=as.factor(Category))
+
+
+a=a %>% left_join(P_value)
+
+b=data.f.q %>% mutate(!!sym(i):=to_factor(data.f.q[["variables"]][[i]])) %>%  group_by(!!!sym(i)) %>% summarise(mean=round(survey_mean(LS7,vartype = "ci",na.rm = T),2)) %>%mutate(out= paste0(mean,"( ", mean_low," , ",mean_upp,")")) %>%select(!!!sym(i),out)  %>% rename("Total"="out")%>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable) %>% left_join(a)
+
+var_A=c("area","i20","i21","marriagestatus","WI_National","x3d1","x4")
+
+for (i in var_A) {
+  
+a1=data.f.q %>% mutate(c1=to_factor(data.f.q[["variables"]][["c1"]]),!!sym(i):=to_factor(data.f.q[["variables"]][[i]])) %>%  group_by(c1,!!!sym(i)) %>% summarise(mean=round(survey_mean(LS7,vartype = "ci",na.rm = T),2)) %>% filter(!is.na(!!!sym(i))) %>%mutate(out= paste0(mean,"( ", mean_low," , ",mean_upp,")")) %>%select(c1,!!!sym(i),out) %>% spread(c1,out)%>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable)
+
+
+j=(data.f.q  %>% mutate(!!sym(i):=to_factor(data.f.q[["variables"]][[i]]))%>%filter(!is.na(!!!sym(i)))%>% summarise(a=unique(!!!sym(i))))$a[1]
+
+P_value=round(svyttest(LS7~c1,design = data.f.q %>% mutate(!!sym(i):=to_factor(data.f.q[["variables"]][[i]]))%>% filter(!!sym(i)==j) ,na.rm=TRUE)$p.value[1],3)
+
+for(j in (data.f.q %>% mutate(!!sym(i):=to_factor(data.f.q[["variables"]][[i]]))%>%filter(!is.na(!!!sym(i))) %>% summarise(a=unique(!!!sym(i))))$a[-1]){
+  
+aa=round(svyttest(LS7~c1,design = data.f.q %>% mutate(!!sym(i):=to_factor(data.f.q[["variables"]][[i]]))%>% filter(!!sym(i)==j) ,na.rm=TRUE)$p.value[1],3)
+
+P_value=c(P_value,aa)
+
+}
+P_value=data.frame(P_value) %>% mutate(Category=(data.f.q%>% mutate(!!sym(i):=to_factor(data.f.q[["variables"]][[i]])) %>%filter(!is.na(!!!sym(i))) %>% summarise(a=unique(!!!sym(i))))$a,Variable=i,Category=as.factor(Category))
+
+
+a1=a1 %>% left_join(P_value)
+
+
+b1=data.f.q %>% mutate(!!sym(i):=to_factor(data.f.q[["variables"]][[i]])) %>%  group_by(!!!sym(i)) %>% summarise(mean=round(survey_mean(LS7,vartype = "ci",na.rm = T),2)) %>% filter(!is.na(!!!sym(i)))%>%mutate(out= paste0(mean,"( ", mean_low," , ",mean_upp,")")) %>%select(!!!sym(i),out)  %>% rename("Total"="out")%>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable) %>% left_join(a1)
+
+b=b %>%bind_rows(b1)
+}
+
+c=data.f.q %>% mutate(c1=to_factor(data.f.q[["variables"]][["c1"]])) %>%  group_by(c1) %>% summarise(mean=round(survey_mean(LS7,vartype = "ci",na.rm = T),2)) %>%mutate(out= paste0(mean,"( ", mean_low," , ",mean_upp,")")) %>%select(c1,out) %>% spread(c1,out)%>%mutate( P_value=round(svyttest(LS7~c1,design = data.f.q %>% mutate(!!sym(i):=to_factor(data.f.q[["variables"]][[i]])) ,na.rm=TRUE)$p.value[1],3)) %>% mutate(Variable="Overall")
+
+d=data.f.q %>% summarise(mean=round(survey_mean(LS7,vartype = "ci",na.rm = T),2))%>%mutate(out= paste0(mean,"( ", mean_low," , ",mean_upp,")")) %>%select(out) %>% rename("Total"="out")%>% mutate(Variable="Overall") %>% left_join(c) %>% relocate(Variable)
+
+d=d%>% mutate(Category="Overall") %>%relocate(Category,.after =Variable ) %>% bind_rows(b)
+
+flextable(d)
+write.xlsx(d,".../table 6.xlsx")
+
+```
+# Table 7:Association between LS7 factors and incidence of major cardiovascular diseases (in the past 12 months) and other non-communicable diseases in included adult population. (Bivariate Regression)
+```{r message=FALSE, warning=FALSE, ,echo=F, paged.print=TRUE}
+ 
+data.f.q <- data.f  %>% filter(age>=25)%>%
+as_survey_design(strata= i07, weights = W_Laboratory) 
+ 
+data.f.a <- data.f  %>% filter(age>=25)%>%
+as_survey_design(strata= i07, weights = W_Laboratory) 
+
+data.f.l <- data.f  %>% filter(age>=25)%>%
+as_survey_design(strata= i07, weights = W_Laboratory) 
+
+var=c("smoking","activity")
+var_2=c("Bmi","BP")
+var_3=c("chol","fpg","diet")
+i="smoking"
+
+var_1=c("h17ac","h17bc","ca5","h7c","h2y","h13b","r1","CKD")
+j=var_1[length(var_1)]
+
+
+b=data.frame(summary(svyglm(formula =as.formula(paste0(j,"~","factor(",i,",levels = c(2,1,0))")),design =data.f.l ,family = binomial(link = "logit")))$coef)%>% mutate(Category=rownames(.),!!sym(paste0(j,"_OR")):=paste0(round(exp(Estimate),3),"(",round(exp(Estimate-1.959*Std..Error),3),",",round(exp(Estimate+1.959*Std..Error),3),")"))%>% rename(!!sym(paste0(j,"_P_value")):=Pr...t..)%>%  select(Category,!!!sym(paste0(j,"_OR")),!!!sym(paste0(j,"_P_value")))%>%filter(Category!="(Intercept)")%>% mutate(Category=substr(Category,nchar(Category),nchar(Category)),Category=as.numeric(Category))
+
+
+a=data.f.l %>% filter(!is.na(!!!sym(i)))%>% group_by(!!!sym(i)) %>% summarise(mean=round(survey_mean(!!!sym(j),vartype = "ci",na.rm = T)*100,2),n=sum(!!sym(j)==1,na.rm=T))%>% mutate(out=paste0(n,"(",mean,")"," (",mean_low," , ",mean_upp,")")) %>% select(!!!sym(i),out) %>% rename("Category"=i,!!sym(j):="out") %>% mutate(Variable=i) %>% relocate(Variable) %>% left_join(b)
+
+
+
+for (j in var_1[-length(var_1)]) {
+  
+b1=data.frame(summary(svyglm(formula =as.formula(paste0(j,"~","factor(",i,",levels = c(2,1,0))")),design =data.f.l ,family = binomial(link = "logit")))$coef)%>% mutate(Category=rownames(.),!!sym(paste0(j,"_OR")):=paste0(round(exp(Estimate),3),"(",round(exp(Estimate-1.959*Std..Error),3),",",round(exp(Estimate+1.959*Std..Error),3),")"))%>% rename(!!sym(paste0(j,"_P_value")):=Pr...t..)%>%  select(Category,!!!sym(paste0(j,"_OR")),!!!sym(paste0(j,"_P_value")))%>%filter(Category!="(Intercept)")%>% mutate(Category=substr(Category,nchar(Category),nchar(Category)),Category=as.numeric(Category))
+
+
+a1=data.f.l %>% filter(!is.na(!!!sym(i)))%>% group_by(!!!sym(i)) %>% summarise(mean=round(survey_mean(!!!sym(j),vartype = "ci",na.rm = T)*100,2),n=sum(!!sym(j)==1,na.rm=T))%>% mutate(out=paste0(n,"(",mean,")"," (",mean_low," , ",mean_upp,")")) %>% select(!!!sym(i),out) %>% rename("Category"=i,!!sym(j):="out") %>% mutate(Variable=i) %>% relocate(Variable) %>% left_join(b1)
+
+a=a %>% left_join(a1)
+
+}
+
+
+for (i in var[-1]) {
+  
+j=var_1[length(var_1)]
+    
+c=data.frame(summary(svyglm(formula =as.formula(paste0(j,"~","factor(",i,",levels = c(2,1,0))")),design =data.f.l ,family = binomial(link = "logit")))$coef)%>% mutate(Category=rownames(.),!!sym(paste0(j,"_OR")):=paste0(round(exp(Estimate),3),"(",round(exp(Estimate-1.959*Std..Error),3),",",round(exp(Estimate+1.959*Std..Error),3),")"))%>% rename(!!sym(paste0(j,"_P_value")):=Pr...t..)%>%  select(Category,!!!sym(paste0(j,"_OR")),!!!sym(paste0(j,"_P_value")))%>%filter(Category!="(Intercept)")%>% mutate(Category=substr(Category,nchar(Category),nchar(Category)),Category=as.numeric(Category))
+
+
+d=data.f.l %>% filter(!is.na(!!!sym(i)))%>% group_by(!!!sym(i)) %>% summarise(mean=round(survey_mean(!!!sym(j),vartype = "ci",na.rm = T)*100,2),n=sum(!!sym(j)==1,na.rm=T))%>% mutate(out=paste0(n,"(",mean,")"," (",mean_low," , ",mean_upp,")")) %>% select(!!!sym(i),out) %>% rename("Category"=i,!!sym(j):="out") %>% mutate(Variable=i) %>% relocate(Variable) %>% left_join(c)
+
+
+
+for (j in var_1[-length(var_1)]) {
+  
+c1=data.frame(summary(svyglm(formula =as.formula(paste0(j,"~","factor(",i,",levels = c(2,1,0))")),design =data.f.q ,family = binomial(link = "logit")))$coef)%>% mutate(Category=rownames(.),!!sym(paste0(j,"_OR")):=paste0(round(exp(Estimate),3),"(",round(exp(Estimate-1.959*Std..Error),3),",",round(exp(Estimate+1.959*Std..Error),3),")"))%>% rename(!!sym(paste0(j,"_P_value")):=Pr...t..)%>%  select(Category,!!!sym(paste0(j,"_OR")),!!!sym(paste0(j,"_P_value")))%>%filter(Category!="(Intercept)")%>% mutate(Category=substr(Category,nchar(Category),nchar(Category)),Category=as.numeric(Category))
+
+
+d1=data.f.q %>% filter(!is.na(!!!sym(i)))%>% group_by(!!!sym(i)) %>% summarise(mean=round(survey_mean(!!!sym(j),vartype = "ci",na.rm = T)*100,2),n=sum(!!sym(j)==1,na.rm=T))%>% mutate(out=paste0(n,"(",mean,")"," (",mean_low," , ",mean_upp,")")) %>% select(!!!sym(i),out) %>% rename("Category"=i,!!sym(j):="out") %>% mutate(Variable=i) %>% relocate(Variable) %>% left_join(c1)
+
+d=d %>% left_join(d1)
+
+}
+
+a=a %>% bind_rows(d)
+}
+
+for (i in var_2) {
+  
+j=var_1[length(var_1)]
+    
+c=data.frame(summary(svyglm(formula =as.formula(paste0(j,"~","factor(",i,",levels = c(2,1,0))")),design =data.f.l ,family = binomial(link = "logit")))$coef)%>% mutate(Category=rownames(.),!!sym(paste0(j,"_OR")):=paste0(round(exp(Estimate),3),"(",round(exp(Estimate-1.959*Std..Error),3),",",round(exp(Estimate+1.959*Std..Error),3),")"))%>% rename(!!sym(paste0(j,"_P_value")):=Pr...t..)%>%  select(Category,!!!sym(paste0(j,"_OR")),!!!sym(paste0(j,"_P_value")))%>%filter(Category!="(Intercept)")%>% mutate(Category=substr(Category,nchar(Category),nchar(Category)),Category=as.numeric(Category))
+
+
+d=data.f.l %>% filter(!is.na(!!!sym(i)))%>% group_by(!!!sym(i)) %>% summarise(mean=round(survey_mean(!!!sym(j),vartype = "ci",na.rm = T)*100,2),n=sum(!!sym(j)==1,na.rm=T))%>% mutate(out=paste0(n,"(",mean,")"," (",mean_low," , ",mean_upp,")")) %>% select(!!!sym(i),out) %>% rename("Category"=i,!!sym(j):="out") %>% mutate(Variable=i) %>% relocate(Variable) %>% left_join(c)
+
+
+
+for (j in var_1[-length(var_1)]) {
+  
+c1=data.frame(summary(svyglm(formula =as.formula(paste0(j,"~","factor(",i,",levels = c(2,1,0))")),design =data.f.a ,family = binomial(link = "logit")))$coef)%>% mutate(Category=rownames(.),!!sym(paste0(j,"_OR")):=paste0(round(exp(Estimate),3),"(",round(exp(Estimate-1.959*Std..Error),3),",",round(exp(Estimate+1.959*Std..Error),3),")"))%>% rename(!!sym(paste0(j,"_P_value")):=Pr...t..)%>%  select(Category,!!!sym(paste0(j,"_OR")),!!!sym(paste0(j,"_P_value")))%>%filter(Category!="(Intercept)")%>% mutate(Category=substr(Category,nchar(Category),nchar(Category)),Category=as.numeric(Category))
+
+
+d1=data.f.a %>% filter(!is.na(!!!sym(i)))%>% group_by(!!!sym(i)) %>% summarise(mean=round(survey_mean(!!!sym(j),vartype = "ci",na.rm = T)*100,2),n=sum(!!sym(j)==1,na.rm=T))%>% mutate(out=paste0(n,"(",mean,")"," (",mean_low," , ",mean_upp,")")) %>% select(!!!sym(i),out) %>% rename("Category"=i,!!sym(j):="out") %>% mutate(Variable=i) %>% relocate(Variable) %>% left_join(c1)
+
+d=d %>% left_join(d1)
+
+}
+
+a=a %>% bind_rows(d)
+}
+
+for (i in var_3) {
+  
+j=var_1[length(var_1)]
+    
+c=data.frame(summary(svyglm(formula =as.formula(paste0(j,"~","factor(",i,",levels = c(2,1,0))")),design =data.f.l ,family = binomial(link = "logit")))$coef)%>% mutate(Category=rownames(.),!!sym(paste0(j,"_OR")):=paste0(round(exp(Estimate),3),"(",round(exp(Estimate-1.959*Std..Error),3),",",round(exp(Estimate+1.959*Std..Error),3),")"))%>% rename(!!sym(paste0(j,"_P_value")):=Pr...t..)%>%  select(Category,!!!sym(paste0(j,"_OR")),!!!sym(paste0(j,"_P_value")))%>%filter(Category!="(Intercept)")%>% mutate(Category=substr(Category,nchar(Category),nchar(Category)),Category=as.numeric(Category))
+
+
+d=data.f.l %>% filter(!is.na(!!!sym(i)))%>% group_by(!!!sym(i)) %>% summarise(mean=round(survey_mean(!!!sym(j),vartype = "ci",na.rm = T)*100,2),n=sum(!!sym(j)==1,na.rm=T))%>% mutate(out=paste0(n,"(",mean,")"," (",mean_low," , ",mean_upp,")")) %>% select(!!!sym(i),out) %>% rename("Category"=i,!!sym(j):="out") %>% mutate(Variable=i) %>% relocate(Variable) %>% left_join(c)
+
+
+
+for (j in var_1[-length(var_1)]) {
+  
+c1=data.frame(summary(svyglm(formula =as.formula(paste0(j,"~","factor(",i,",levels = c(2,1,0))")),design =data.f.l ,family = binomial(link = "logit")))$coef)%>% mutate(Category=rownames(.),!!sym(paste0(j,"_OR")):=paste0(round(exp(Estimate),3),"(",round(exp(Estimate-1.959*Std..Error),3),",",round(exp(Estimate+1.959*Std..Error),3),")"))%>% rename(!!sym(paste0(j,"_P_value")):=Pr...t..)%>%  select(Category,!!!sym(paste0(j,"_OR")),!!!sym(paste0(j,"_P_value")))%>%filter(Category!="(Intercept)")%>% mutate(Category=substr(Category,nchar(Category),nchar(Category)),Category=as.numeric(Category))
+
+
+d1=data.f.l %>% filter(!is.na(!!!sym(i)))%>% group_by(!!!sym(i)) %>% summarise(mean=round(survey_mean(!!!sym(j),vartype = "ci",na.rm = T)*100,2),n=sum(!!sym(j)==1,na.rm=T))%>% mutate(out=paste0(n,"(",mean,")"," (",mean_low," , ",mean_upp,")")) %>% select(!!!sym(i),out) %>% rename("Category"=i,!!sym(j):="out") %>% mutate(Variable=i) %>% relocate(Variable) %>% left_join(c1)
+
+d=d %>% left_join(d1)
+
+}
+
+a=a %>% bind_rows(d)
+}
+
+flextable(a)
+write.xlsx(a,".../table 7.xlsx")
+
+```
+
+# Table 8:Association between number of ideal LS7 value and incidence of major cardiovascular diseases (in the past 12 months) and other non-communicable diseases in included adult population. (Bivariate Regression)
+```{r message=FALSE, warning=FALSE, ,echo=F, paged.print=TRUE}
+ 
+data.f.q <- data.f  %>% filter(age>=25)%>%
+as_survey_design(strata= i07, weights = W_Laboratory) 
+ 
+data.f.a <- data.f  %>% filter(age>=25)%>%
+as_survey_design(strata= i07, weights = W_Laboratory) 
+
+data.f.l <- data.f  %>% filter(age>=25)%>%
+as_survey_design(strata= i07, weights = W_Laboratory) 
+
+
+i="LS7"
+
+var_1=c("h17ac","h17bc","ca5","h7c","h2y","h13b","r1","CKD")
+j=var_1[length(var_1)]
+
+
+b=data.frame(summary(svyglm(formula =as.formula(paste0(j,"~","factor(",i,",levels = c(6,5,4,3,2,1,0))")),design =data.f.l ,family = binomial(link = "logit")))$coef)%>% mutate(Category=rownames(.),!!sym(paste0(j,"_OR")):=paste0(round(exp(Estimate),3),"(",round(exp(Estimate-1.959*Std..Error),3),",",round(exp(Estimate+1.959*Std..Error),3),")"))%>% rename(!!sym(paste0(j,"_P_value")):=Pr...t..)%>%  select(Category,!!!sym(paste0(j,"_OR")),!!!sym(paste0(j,"_P_value")))%>%filter(Category!="(Intercept)")%>% mutate(Category=substr(Category,nchar(Category),nchar(Category)),Category=as.numeric(Category))
+
+
+a=data.f.l %>% filter(!is.na(!!!sym(i)))%>% group_by(!!!sym(i)) %>% summarise(mean=round(survey_mean(!!!sym(j),vartype = "ci",na.rm = T)*100,2),n=sum(!!sym(j)==1,na.rm=T))%>% mutate(out=paste0(n,"(",mean,")"," (",mean_low," , ",mean_upp,")")) %>% select(!!!sym(i),out) %>% rename("Category"=i,!!sym(j):="out") %>% mutate(Variable=i) %>% relocate(Variable) %>% left_join(b)
+
+
+
+for (j in var_1[-length(var_1)]) {
+  
+b1=data.frame(summary(svyglm(formula =as.formula(paste0(j,"~","factor(",i,",levels = c(6,5,4,3,2,1,0))")),design =data.f.l ,family = binomial(link = "logit")))$coef)%>% mutate(Category=rownames(.),!!sym(paste0(j,"_OR")):=paste0(round(exp(Estimate),3),"(",round(exp(Estimate-1.959*Std..Error),3),",",round(exp(Estimate+1.959*Std..Error),3),")"))%>% rename(!!sym(paste0(j,"_P_value")):=Pr...t..)%>%  select(Category,!!!sym(paste0(j,"_OR")),!!!sym(paste0(j,"_P_value")))%>%filter(Category!="(Intercept)")%>% mutate(Category=substr(Category,nchar(Category),nchar(Category)),Category=as.numeric(Category))
+
+
+a1=data.f.l %>% filter(!is.na(!!!sym(i)))%>% group_by(!!!sym(i)) %>% summarise(mean=round(survey_mean(!!!sym(j),vartype = "ci",na.rm = T)*100,2),n=sum(!!sym(j)==1,na.rm=T))%>% mutate(out=paste0(n,"(",mean,")"," (",mean_low," , ",mean_upp,")")) %>% select(!!!sym(i),out) %>% rename("Category"=i,!!sym(j):="out") %>% mutate(Variable=i) %>% relocate(Variable) %>% left_join(b1)
+
+a=a %>% left_join(a1)
+
+}
+
+j=var_1[length(var_1)]
+
+c=data.f.l  %>% summarise(mean=round(survey_mean(!!!sym(j),vartype = "ci",na.rm = T)*100,2),n=sum(!!sym(j)==1,na.rm=T))%>% mutate(out=paste0(n,"(",mean,")"," (",mean_low," , ",mean_upp,")")) %>% select(out) %>% rename(!!sym(j):="out") %>%mutate(Variable="Total") 
+
+for (j in var_1[-length(var_1)]) {
+  
+b1=data.f.q %>% summarise(mean=round(survey_mean(!!!sym(j),vartype = "ci",na.rm = T)*100,2),n=sum(!!sym(j)==1,na.rm=T))%>% mutate(out=paste0(n,"(",mean,")"," (",mean_low," , ",mean_upp,")")) %>% select(out) %>% rename(!!sym(j):="out")%>%mutate(Variable="Total") 
+
+c=c %>% left_join(b1)
+
+}
+a=a %>%bind_rows(c) 
+
+v=paste0(var_1,"_P_value")
+
+for (i in v) {
+  a=a %>% mutate(!!sym(i):round(!!!sym(i),3))
+}
+
+write.xlsx(a,".../table 8.xlsx")
+
+flextable(a)
+```
+# Table 9: Association between LS7 factors and health-related quality of life (HRQoL) components in included adult population.
+```{r message=FALSE, warning=FALSE, ,echo=F, paged.print=TRUE}
+ 
+data.f.l <- data.f  %>% filter(age>=25)%>%
+as_survey_design(strata= i07, weights = W_Laboratory) 
+
+i="eq_1"
+var=c("eq_1","eq_2","eq_3","eq_4","eq_5")
+a=data.f.l %>% filter(!is.na(!!!sym(i))) %>% group_by(!!!sym(i)) %>%summarise( percent=round(survey_prop(vartype = "ci")*100,2)) %>% mutate(Prevalence=paste0(percent,"(",percent_low," , ",percent_upp,")")) %>% select(!!!sym(i),Prevalence) %>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable)
+
+for (i in var[-1]) {
+  
+a1=data.f.l %>% filter(!is.na(!!!sym(i))) %>% group_by(!!!sym(i)) %>%summarise( percent=round(survey_prop(vartype = "ci")*100,2)) %>% mutate(Prevalence=paste0(percent,"(",percent_low," , ",percent_upp,")")) %>% select(!!!sym(i),Prevalence)%>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable) 
+a=a %>% bind_rows(a1)
+  
+}
+i="eq_1"
+var=c("eq_1","eq_2","eq_3","eq_4","eq_5")
+
+b=data.f.l  %>% filter(!is.na(!!!sym(i))) %>%  group_by(!!!sym(i)) %>% summarise(mean=round(survey_mean(LS7,vartype = "ci",na.rm = T),2)) %>%mutate(Mean_LS7= paste0(mean,"( ", mean_low," , ",mean_upp,")")) %>%select(!!!sym(i),Mean_LS7) %>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable)
+
+for (i in var[-1]) {
+  
+b1=data.f.l  %>% filter(!is.na(!!!sym(i))) %>%  group_by(!!!sym(i)) %>% summarise(mean=round(survey_mean(LS7,vartype = "ci",na.rm = T),2)) %>%mutate(Mean_LS7= paste0(mean,"( ", mean_low," , ",mean_upp,")")) %>%select(!!!sym(i),Mean_LS7) %>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable)
+
+b=b %>% bind_rows(b1)
+}
+a=a %>% left_join(b)
+
+i="eq_1"
+var=c("eq_1","eq_2","eq_3","eq_4","eq_5")
+
+c= data.frame(summary(svyglm(formula =as.formula(paste0("LS7","~","factor(",i,",levels = c(1,2,3))")),design =data.f.l ,family = gaussian(link="identity")))$coef)%>% rename(!!sym(paste0(i,"_P_value")):=Pr...t..)%>% mutate(Category=rownames(.)) %>% select(Category,!!sym(paste0(i,"_P_value")))%>%filter(Category!="(Intercept)")%>% mutate(Category=substr(Category,nchar(Category),nchar(Category)),Category=as.numeric(Category)) %>%mutate(P_value=round(!!sym(paste0(i,"_P_value")))) %>% select(Category,P_value)%>% mutate(Variable=i) %>% relocate(Variable) 
+
+
+for (i in var[-1]) {
+
+d=data.frame(summary(svyglm(formula =as.formula(paste0("LS7","~","factor(",i,",levels = c(1,2,3))")),design =data.f.l ,family = gaussian(link="identity")))$coef)%>% rename(!!sym(paste0(i,"_P_value")):=Pr...t..)%>% mutate(Category=rownames(.)) %>% select(Category,!!sym(paste0(i,"_P_value")))%>%filter(Category!="(Intercept)")%>% mutate(Category=substr(Category,nchar(Category),nchar(Category)),Category=as.numeric(Category)) %>%mutate(P_value=round(!!sym(paste0(i,"_P_value"))))%>% select(Category,P_value) %>% mutate(Variable=i) %>% relocate(Variable) 
+c=c %>% bind_rows(d)
+}
+
+a=a %>% left_join(c)
+
+write.xlsx(a,".../table 9.xlsx")
+
+flextable(a)
+
+```
+# Table 10: Association between number of ideal LS7 values and related laboratory tests in included adult population.
+```{r message=FALSE, warning=FALSE, ,echo=F, paged.print=TRUE}
+data.f.l <- data.f  %>% filter(age>=25)%>%
+as_survey_design(strata= i07, weights = W_Laboratory)
+var=c("igg","TRIGL","HDLC3","ALTL","microalbumine_creat","HbA1C","CRJ2U")
+i="igg"
+
+a=data.f.l %>% group_by(LS7) %>% summarise(mean=round(survey_mean(!!!sym(i),vartype = "ci",na.rm = T),2)) %>% mutate(out=paste0(mean,"(",mean_low," , ",mean_upp,")")) %>% select(LS7,out)%>% rename(!!sym(i):="out")  %>% rename("Category"="LS7") %>% mutate(Variable="LS7") %>% relocate(Variable)
+for (i in var[-1]) {
+  
+b=data.f.l %>% group_by(LS7) %>% summarise(mean=round(survey_mean(!!!sym(i),vartype = "ci",na.rm = T),2)) %>% mutate(out=paste0(mean,"(",mean_low," , ",mean_upp,")")) %>% select(LS7,out)%>% rename(!!sym(i):="out") %>% rename("Category"="LS7")%>% mutate(Variable="LS7")
+
+a=a %>% left_join(b)
+}
+
+
+i="igg"
+c=data.f.l  %>% summarise(mean=round(survey_mean(!!!sym(i),vartype = "ci",na.rm = T),2)) %>% mutate(out=paste0(mean,"(",mean_low," , ",mean_upp,")")) %>% select(out)%>% rename(!!sym(i):="out") %>% mutate(Variable="Overall" )%>% relocate(Variable)
+
+for (i in var[-1]) {
+  
+d=data.f.l  %>% summarise(mean=round(survey_mean(!!!sym(i),vartype = "ci",na.rm = T),2)) %>% mutate(out=paste0(mean,"(",mean_low," , ",mean_upp,")")) %>% select(out)%>% rename(!!sym(i):="out") %>% mutate(Variable="Overall" )
+
+c=c %>% left_join(d)
+
+}
+a=a %>% bind_rows(c)
+
+
+write.xlsx(a,".../table 10.xlsx")
+
+flextable(a)
+
+```
+# Table 11: Investigation the association between LS7 factors and healthy life style recommendations (in the past 12 months) in the included population. Inclusion a figure would be easier on this table
+```{r message=FALSE, warning=FALSE, ,echo=F, paged.print=TRUE}
+data.f.q <- data.f  %>% filter(age>=25)%>%
+as_survey_design(strata= i07, weights = W_Laboratory) 
+
+data.f.a <- data.f  %>% filter(age>=25)%>%
+as_survey_design(strata= i07, weights = W_Laboratory) 
+
+data.f.l <- data.f  %>% filter(age>=25)%>%
+as_survey_design(strata= i07, weights = W_Laboratory) 
+
+var_q=c("smoking","activity")
+var_a=c("BP","Bmi")
+var_l=c("chol","fpg","diet")
+var=c("h20a","h20b","h20c","h20d","h20m","h20j","h20i","h20v","h20e","h20f")
+
+i=var_q[1]
+j="h20a"
+
+a=data.f.q %>% mutate(!!sym(j):=to_factor(data.f.q[["variables"]][[j]]))%>% filter(!is.na(!!!sym(i)),!is.na(!!!sym(j))) %>% group_by(!!!sym(i),!!!sym(j)) %>% summarise(percent=round(survey_prop(vartype = "ci")*100,2)) %>% mutate(out=paste0(percent,"(",percent_low," , ",percent_upp,")")) %>% select(!!!sym(i),!!!sym(j),out)%>% spread(!!sym(j),out)%>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable)%>% rename(!!paste0("No_",j):="No",!!paste0("Yes_",j):="Yes")
+
+for (j in var[-1]) {
+  
+b=data.f.q%>% mutate(!!sym(j):=to_factor(data.f.q[["variables"]][[j]])) %>% filter(!is.na(!!!sym(i)),!is.na(!!!sym(j))) %>% group_by(!!!sym(i),!!!sym(j)) %>% summarise(percent=round(survey_prop(vartype = "ci")*100,2)) %>% mutate(out=paste0(percent,"(",percent_low," , ",percent_upp,")")) %>% select(!!!sym(i),!!!sym(j),out) %>% spread(!!sym(j),out)%>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable)%>%rename(!!paste0("No_",j):="No",!!paste0("Yes_",j):="Yes")
+
+a=a %>% left_join(b) 
+  
+}
+
+for (i in var_q[-1]) {
+  j="h20a"
+
+c=data.f.q %>% mutate(!!sym(j):=to_factor(data.f.q[["variables"]][[j]]))%>% filter(!is.na(!!!sym(i)),!is.na(!!!sym(j))) %>% group_by(!!!sym(i),!!!sym(j)) %>% summarise(percent=round(survey_prop(vartype = "ci")*100,2)) %>% mutate(out=paste0(percent,"(",percent_low," , ",percent_upp,")")) %>% select(!!!sym(i),!!!sym(j),out)%>% spread(!!sym(j),out)%>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable)%>% rename(!!paste0("No_",j):="No",!!paste0("Yes_",j):="Yes")
+
+for (j in var[-1]) {
+  
+b=data.f.q%>% mutate(!!sym(j):=to_factor(data.f.q[["variables"]][[j]])) %>% filter(!is.na(!!!sym(i)),!is.na(!!!sym(j))) %>% group_by(!!!sym(i),!!!sym(j)) %>% summarise(percent=round(survey_prop(vartype = "ci")*100,2)) %>% mutate(out=paste0(percent,"(",percent_low," , ",percent_upp,")")) %>% select(!!!sym(i),!!!sym(j),out) %>% spread(!!sym(j),out)%>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable)%>%rename(!!paste0("No_",j):="No",!!paste0("Yes_",j):="Yes")
+
+c=c %>% left_join(b) 
+  
+}
+a=a %>% bind_rows(c)
+}
+
+
+for (i in var_a) {
+  j="h20a"
+
+c=data.f.a %>% mutate(!!sym(j):=to_factor(data.f.a[["variables"]][[j]]))%>% filter(!is.na(!!!sym(i)),!is.na(!!!sym(j))) %>% group_by(!!!sym(i),!!!sym(j)) %>% summarise(percent=round(survey_prop(vartype = "ci")*100,2)) %>% mutate(out=paste0(percent,"(",percent_low," , ",percent_upp,")")) %>% select(!!!sym(i),!!!sym(j),out)%>% spread(!!sym(j),out)%>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable)%>% rename(!!paste0("No_",j):="No",!!paste0("Yes_",j):="Yes")
+
+for (j in var[-1]) {
+  
+b=data.f.a%>% mutate(!!sym(j):=to_factor(data.f.a[["variables"]][[j]])) %>% filter(!is.na(!!!sym(i)),!is.na(!!!sym(j))) %>% group_by(!!!sym(i),!!!sym(j)) %>% summarise(percent=round(survey_prop(vartype = "ci")*100,2)) %>% mutate(out=paste0(percent,"(",percent_low," , ",percent_upp,")")) %>% select(!!!sym(i),!!!sym(j),out) %>% spread(!!sym(j),out)%>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable)%>%rename(!!paste0("No_",j):="No",!!paste0("Yes_",j):="Yes")
+
+c=c %>% left_join(b) 
+  
+}
+a=a %>% bind_rows(c)
+
+}
+
+
+for (i in var_l) {
+  j="h20a"
+
+c=data.f.l %>% mutate(!!sym(j):=to_factor(data.f.l[["variables"]][[j]]))%>% filter(!is.na(!!!sym(i)),!is.na(!!!sym(j))) %>% group_by(!!!sym(i),!!!sym(j)) %>% summarise(percent=round(survey_prop(vartype = "ci")*100,2)) %>% mutate(out=paste0(percent,"(",percent_low," , ",percent_upp,")")) %>% select(!!!sym(i),!!!sym(j),out)%>% spread(!!sym(j),out)%>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable)%>% rename(!!paste0("No_",j):="No",!!paste0("Yes_",j):="Yes")
+
+for (j in var[-1]) {
+  
+b=data.f.l%>% mutate(!!sym(j):=to_factor(data.f.l[["variables"]][[j]])) %>% filter(!is.na(!!!sym(i)),!is.na(!!!sym(j))) %>% group_by(!!!sym(i),!!!sym(j)) %>% summarise(percent=round(survey_prop(vartype = "ci")*100,2)) %>% mutate(out=paste0(percent,"(",percent_low," , ",percent_upp,")")) %>% select(!!!sym(i),!!!sym(j),out) %>% spread(!!sym(j),out)%>% rename("Category"=i) %>% mutate(Variable=i) %>% relocate(Variable)%>%rename(!!paste0("No_",j):="No",!!paste0("Yes_",j):="Yes")
+
+c=c %>% left_join(b) 
+  
+}
+a=a %>% bind_rows(c)
+
+}
+
+write.xlsx(a,".../table 11.xlsx")
+
+flextable(a)
+
+```
+
+
